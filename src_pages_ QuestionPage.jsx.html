@@ -1,0 +1,174 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/>import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { db, storage } from '../firebase';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, getDocs, collection, query, where } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ArrowLeft, Mic, Image as ImageIcon, Send, Zap, Volume2 } from 'lucide-react';
+
+export default function QuestionPage() {
+  const { id } = useParams();
+  const { user, lang } = useAuth();
+  const navigate = useNavigate();
+  const [question, setQuestion] = useState(null);
+  const [answer, setAnswer] = useState('');
+  const [mirror, setMirror] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioURL, setAudioURL] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [existingAnswer, setExistingAnswer] = useState(null);
+  const mediaRecorder = useRef(null);
+  const chunks = useRef([]);
+
+  useEffect(() => {
+    const fetchQuestion = async () => {
+      const docRef = doc(db, 'questions', id);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) setQuestion({ ...snap.data(), id: snap.id });
+      else navigate('/');
+      setLoading(false);
+    };
+    fetchQuestion();
+  }, [id, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchAnswer = async () => {
+      const ansRef = doc(db, 'users', user.uid, 'answers', id);
+      const snap = await getDoc(ansRef);
+      if (snap.exists()) {
+        setExistingAnswer(snap.data());
+        setAnswer(snap.data().texto || '');
+        setMirror(snap.data().palpite || '');
+        if (snap.data().imagemUrl) setImagePreview(snap.data().imagemUrl);
+      }
+    };
+    fetchAnswer();
+  }, [user, id]);
+
+  const getText = (q) => lang === 'es' ? q?.texto_es : q?.texto_pt;
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = () => setImagePreview(reader.result);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder.current = new MediaRecorder(stream);
+    chunks.current = [];
+    mediaRecorder.current.ondataavailable = (e) => chunks.current.push(e.data);
+    mediaRecorder.current.onstop = () => {
+      const blob = new Blob(chunks.current, { type: 'audio/webm' });
+      setAudioBlob(blob);
+      setAudioURL(URL.createObjectURL(blob));
+    };
+    mediaRecorder.current.start();
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    mediaRecorder.current.stop();
+    setIsRecording(false);
+    mediaRecorder.current.stream.getTracks().forEach(t => t.stop());
+  };
+
+  const handleSubmit = async () => {
+    if (!answer.trim()) return;
+    setSaving(true);
+    try {
+      const ansRef = doc(db, 'users', user.uid, 'answers', id);
+      let data = {
+        texto: answer,
+        palpite: mirror || '',
+        timestamp: new Date().toISOString(),
+        questionId: id
+      };
+
+      // Upload de imagem se existir
+      if (imageFile) {
+        const imgRef = ref(storage, `users/${user.uid}/answers/${id}/image`);
+        await uploadBytes(imgRef, imageFile);
+        const url = await getDownloadURL(imgRef);
+        data.imagemUrl = url;
+      }
+
+      // Upload de áudio se existir
+      if (audioBlob) {
+        const audioRef = ref(storage, `users/${user.uid}/answers/${id}/audio.webm`);
+        await uploadBytes(audioRef, audioBlob);
+        const url = await getDownloadURL(audioRef);
+        data.audioUrl = url;
+      }
+
+      await setDoc(ansRef, data, { merge: true });
+      setExistingAnswer(data);
+      alert('✅ Resposta guardada!');
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao guardar. Tenta novamente.');
+    }
+    setSaving(false);
+  };
+
+  if (loading || !question) return <div className="text-center py-20">Carregando...</div>;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-lg p-6">
+      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft className="w-5 h-5" /> Voltar</button>
+      
+      <span className="text-sm text-indigo-500 font-medium">{question.tema}</span>
+      <h2 className="text-2xl font-bold text-gray-800 mb-2">{getText(question)}</h2>
+      <div className="flex items-center gap-2 mb-6">
+        <span className="text-xs bg-gray-100 px-3 py-1 rounded-full">Nível {question.profundidad}</span>
+        <span className="text-xs bg-yellow-100 px-3 py-1 rounded-full">Modo Espelho disponível</span>
+      </div>
+
+      {/* Área de resposta */}
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Tua resposta</label>
+          <textarea value={answer} onChange={e=>setAnswer(e.target.value)} rows="3" className="w-full border rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Escreve aqui..." />
+        </div>
+
+        {/* Modo Espelho */}
+        <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
+          <div className="flex items-center gap-2 text-purple-700 font-medium mb-2"><Zap className="w-4 h-4" /> Modo Espelho</div>
+          <p className="text-sm text-purple-600 mb-2">Como achas que a <strong>Katy</strong> responderia a esta pergunta?</p>
+          <textarea value={mirror} onChange={e=>setMirror(e.target.value)} rows="2" className="w-full border rounded-xl p-3 focus:ring-2 focus:ring-purple-500 outline-none bg-white" placeholder="Escreve o palpite..." />
+        </div>
+
+        {/* Multimédia */}
+        <div className="flex flex-wrap gap-3">
+          <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-xl flex items-center gap-2 text-sm transition">
+            <ImageIcon className="w-4 h-4" /> Imagem
+            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+          </label>
+          <button onClick={isRecording ? stopRecording : startRecording} className={`px-4 py-2 rounded-xl flex items-center gap-2 text-sm transition ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 hover:bg-gray-200'}`}>
+            <Mic className="w-4 h-4" /> {isRecording ? 'Parar' : 'Gravar áudio'}
+          </button>
+          {audioURL && <audio controls src={audioURL} className="h-10" />}
+        </div>
+
+        {imagePreview && <img src={imagePreview} alt="preview" className="max-h-40 rounded-lg object-cover" />}
+
+        <button onClick={handleSubmit} disabled={saving} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 transition flex items-center justify-center gap-2 disabled:opacity-50">
+          <Send className="w-5 h-5" /> {saving ? 'Guardando...' : existingAnswer ? 'Atualizar resposta' : 'Guardar resposta'}
+        </button>
+
+        {existingAnswer && (
+          <div className="text-center text-sm text-green-600">✅ Já respondeste a esta pergunta. Podes editar à vontade.</div>
+        )}
+      </div>
+    </div>
+  );
+}
