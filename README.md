@@ -36,9 +36,13 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
   propriedades) para separá-las em componentes independentes, cada uma exatamente na posição/rotação
   visual em que estava — igual ao comando EXPLODE do AutoCAD, um nível por vez (explodir de novo
   numa das partes resultantes desce mais um nível, se houver). Entra no desfazer/refazer.
-  STEP/IGES via [opencascade.js](https://github.com/donalffons/opencascade.js) (WASM, ~65MB, carregado
-  sob demanda) é **experimental**: funciona para sólidos simples, geometria muito complexa pode
-  falhar (erro aparece na barra de status, não trava a aplicação).
+  STEP/IGES via [occt-import-js](https://github.com/kovacsv/occt-import-js) (WASM, ~7.6MB, carregado
+  sob demanda) — testado de ponta a ponta com arquivos STEP reais (um cubo simples e uma montagem
+  CAX-IF de várias peças nomeadas: porca/parafuso/haste/suporte/placa), incluindo "Explodir" na
+  montagem. Fica **verde** para arquivos STEP/IGES autocontidos num único arquivo; montagens
+  fatiadas em múltiplos arquivos que se referenciam entre si (comum em exports "por peça" de alguns
+  CADs) não resolvem essas referências externas — o erro aparece na barra de status, não trava a
+  aplicação.
 - **Exportar**: `.dxf` (módulos + paredes + cotas + pegadas dos componentes + referências),
   `.stl`/`.obj`/`.gltf` (módulos + paredes + componentes colocados), ou `.json` (projeto completo,
   para reabrir depois — os componentes exportam só a referência à biblioteca, não a geometria).
@@ -75,9 +79,12 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
   arquivo pode ler parcialmente (algumas entidades ainda não mapeadas, como TEXT/INSERT/blocos)
   ou falhar. A alternativa "oficial" (SDK da Open Design Alliance) é paga e fechada; não é algo
   que dá para embutir de graça num site público.
-- **STEP/IGES são "melhor esforço"**: a API do opencascade.js não tem tipos TypeScript publicados
-  e cobre ~72% das classes do OpenCascade — geometrias avançadas (superfícies NURBS muito
-  complexas, montagens grandes) podem não tesselar corretamente.
+- **STEP/IGES multi-arquivo não resolvem.** Algumas exportações CAD dividem uma montagem grande em
+  vários arquivos `.stp`/`.step` que se referenciam por caminho relativo (ex: um `assembly.stp` que
+  aponta para `parte1.stp`, `parte2.stp`...). Como a importação lê um único arquivo por vez, essas
+  referências externas não são resolvidas — só o arquivo raiz é interpretado. Um STEP/IGES
+  autocontido num único arquivo (o caso comum de peças de catálogo de fabricante) importa
+  normalmente.
 
 ## Arquitetura
 

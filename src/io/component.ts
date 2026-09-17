@@ -5,7 +5,7 @@ import { nextId } from '../core/Document';
 import type { LibraryComponentMeta, PlacedComponentDef } from '../core/types';
 import { saveComponent } from '../core/componentLibrary';
 import { loadMeshGroup, loadLibraryComponentGroup, formatFromFilename } from './mesh';
-import { loadStepOrIgesGeometry } from './step';
+import { loadStepOrIgesGroup } from './step';
 import { isDwgFile } from './dwg';
 
 function isStepOrIges(filename: string): boolean {
@@ -69,8 +69,7 @@ export async function importFileAsComponent(
   let group: THREE.Object3D;
   let sourceFormat: string;
   if (isStepOrIges(file.name)) {
-    const geometry = await loadStepOrIgesGeometry(file);
-    group = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x8899aa, metalness: 0.1, roughness: 0.8 }));
+    group = await loadStepOrIgesGroup(file);
     sourceFormat = /\.(igs|iges)$/i.test(file.name) ? 'iges' : 'step';
   } else {
     const format = formatFromFilename(file.name);
