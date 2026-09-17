@@ -120,9 +120,13 @@ export class PropertiesPanel {
     explodeBtn.title = 'Separa as sub-partes deste componente em peças independentes, mantendo a posição visual de cada uma';
     explodeBtn.addEventListener('click', async () => {
       try {
-        const parts = await explodeComponent(this.doc, inst);
+        const { instances, skipped } = await explodeComponent(this.doc, inst);
         this.onLibraryChanged();
-        this.setStatus(`Explodido em ${parts.length} partes.`);
+        this.setStatus(
+          skipped > 0
+            ? `Explodido em ${instances.length} partes (${skipped} sem geometria própria foram ignoradas).`
+            : `Explodido em ${instances.length} partes.`,
+        );
       } catch (err) {
         this.setStatus((err as Error).message, true);
       }

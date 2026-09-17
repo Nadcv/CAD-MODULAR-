@@ -26,6 +26,20 @@ function exportGroupToGlb(group: THREE.Object3D): Promise<ArrayBuffer> {
   });
 }
 
+/** True if `object`'s subtree contains at least one mesh with actual vertex data. Real-world STEP
+ * assemblies sometimes include nodes with no tessellated shape at all (reference axes, datum
+ * planes, PMI/annotation entities, or a part whose geometry the CAD kernel couldn't mesh) — these
+ * have a name and a place in the hierarchy but nothing to actually show. */
+function hasGeometry(object: THREE.Object3D): boolean {
+  let found = false;
+  object.traverse((child) => {
+    if (found) return;
+    const mesh = child as THREE.Mesh;
+    if (mesh.isMesh && (mesh.geometry as THREE.BufferGeometry).attributes.position?.count) found = true;
+  });
+  return found;
+}
+
 /**
  * Re-anchors `group` so its bounding box starts at its own local origin (matches how modules are
  * authored: position is the bottom-front-left corner, not an arbitrary offset), exports it to
@@ -114,9 +128,13 @@ function findExplodableParts(root: THREE.Object3D): THREE.Object3D[] {
  * assembly's individual bodies) becomes its own independent library component + placed instance,
  * positioned/rotated exactly where it visually sat inside the original — and the combined instance
  * is removed. Mirrors AutoCAD's EXPLODE: one level per call: run it again on a result to go deeper.
- * Throws if the component has no more than one top-level part (nothing to explode).
+ * Throws if the component has no more than one top-level part (nothing to explode), or if none of
+ * its top-level parts have actual geometry to show.
  */
-export async function explodeComponent(doc: CadDocument, inst: PlacedComponentDef): Promise<PlacedComponentDef[]> {
+export async function explodeComponent(
+  doc: CadDocument,
+  inst: PlacedComponentDef,
+): Promise<{ instances: PlacedComponentDef[]; skipped: number }> {
   const template = await loadLibraryComponentGroup(inst.libraryId);
 
   // Reproduce exactly the placement Scene3D uses, so each child's matrixWorld reflects where it
@@ -132,11 +150,19 @@ export async function explodeComponent(doc: CadDocument, inst: PlacedComponentDe
     throw new Error('Este componente é uma peça única — não há sub-partes para explodir.');
   }
 
-  doc.checkpoint();
-  const newInstances: PlacedComponentDef[] = [];
+  const saved: { meta: LibraryComponentMeta; worldAnchor: THREE.Vector3 }[] = [];
+  let skipped = 0;
   let idx = 0;
   for (const child of parts) {
     idx += 1;
+    // Some real-world assemblies name a sub-part (a reference axis, a datum, a part the CAD kernel
+    // couldn't mesh) but give it no actual shape — skip those instead of creating a fake
+    // placeholder component that shows nothing when inserted.
+    if (!hasGeometry(child)) {
+      skipped += 1;
+      continue;
+    }
+
     // Detach the child into its own standalone, un-parented object that carries its full world
     // transform baked into its own position/quaternion/scale (it has no parent any more, so its
     // "local" transform IS the world transform from here on).
@@ -146,9 +172,16 @@ export async function explodeComponent(doc: CadDocument, inst: PlacedComponentDe
     standalone.updateMatrixWorld(true);
 
     const partName = child.name ? `${inst.name} – ${child.name}` : `${inst.name} – parte ${idx}`;
-    const { meta, worldAnchor } = await saveGroupAsLibraryComponent(partName, 'exploded', standalone);
+    saved.push(await saveGroupAsLibraryComponent(partName, 'exploded', standalone));
+  }
 
-    const newInst = doc.addPlacedComponent({
+  if (saved.length === 0) {
+    throw new Error('Nenhuma das sub-partes tem geometria própria (podem ser referências/metadados sem forma) — nada para explodir.');
+  }
+
+  doc.checkpoint();
+  const newInstances = saved.map(({ meta, worldAnchor }) =>
+    doc.addPlacedComponent({
       libraryId: meta.id,
       name: meta.name,
       position: { x: worldAnchor.x, y: worldAnchor.z, z: worldAnchor.y },
@@ -157,11 +190,10 @@ export async function explodeComponent(doc: CadDocument, inst: PlacedComponentDe
       width: meta.width,
       depth: meta.depth,
       height: meta.height,
-    });
-    newInstances.push(newInst);
-  }
+    }),
+  );
 
   doc.removePlacedComponent(inst.id);
   doc.setSelection(newInstances.map((i) => i.id));
-  return newInstances;
+  return { instances: newInstances, skipped };
 }
