@@ -6,7 +6,7 @@ import type { LibraryComponentMeta, PlacedComponentDef } from '../core/types';
 import { saveComponent } from '../core/componentLibrary';
 import { loadMeshGroup, formatFromFilename } from './mesh';
 import { loadStepOrIgesGeometry } from './step';
-import { isDwgFile, UnsupportedDwgError } from './dwg';
+import { isDwgFile } from './dwg';
 
 function isStepOrIges(filename: string): boolean {
   return /\.(step|stp|igs|iges)$/i.test(filename);
@@ -38,7 +38,9 @@ export async function importFileAsComponent(
   doc: CadDocument,
   file: File,
 ): Promise<{ meta: LibraryComponentMeta; instance: PlacedComponentDef }> {
-  if (isDwgFile(file.name)) throw new UnsupportedDwgError();
+  if (isDwgFile(file.name)) {
+    throw new Error('.dwg é um desenho 2D — use o botão "Importar DXF/DWG (2D)..." em vez deste.');
+  }
 
   let group: THREE.Object3D;
   let sourceFormat: string;

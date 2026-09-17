@@ -5,6 +5,7 @@ import type { ComponentLibraryPanel } from './ComponentLibraryPanel';
 import { importDxfIntoDocument, exportDocumentToDxf } from '../io/dxf';
 import { exportToStl, exportToObj, exportToGltf } from '../io/mesh';
 import { importFileAsComponent } from '../io/component';
+import { isDwgFile, parseDwgToEntities } from '../io/dwg';
 
 function download(filename: string, content: string | ArrayBuffer | object): void {
   const blob =
@@ -110,18 +111,22 @@ export class Toolbar {
     snapLabel.append(snapCheckbox, document.createTextNode(' Ajustar à grade (5cm / 15°)'));
     root.appendChild(snapLabel);
 
-    // --- Import DXF (2D reference geometry) ---
+    // --- Import DXF/DWG (2D reference geometry) ---
     const importDxfInput = document.createElement('input');
     importDxfInput.type = 'file';
-    importDxfInput.accept = '.dxf';
+    importDxfInput.accept = '.dxf,.dwg';
     importDxfInput.style.display = 'none';
     importDxfInput.addEventListener('change', async () => {
       const file = importDxfInput.files?.[0];
       importDxfInput.value = '';
       if (!file) return;
       try {
-        setStatus(`Importando ${file.name}...`);
-        importDxfIntoDocument(doc, await file.text());
+        setStatus(`Importando ${file.name}${isDwgFile(file.name) ? ' (pode levar um instante)' : ''}...`);
+        if (isDwgFile(file.name)) {
+          doc.setDxfEntities(await parseDwgToEntities(file));
+        } else {
+          importDxfIntoDocument(doc, await file.text());
+        }
         setStatus(`Importado: ${file.name}`);
       } catch (err) {
         setStatus((err as Error).message, true);
@@ -130,7 +135,8 @@ export class Toolbar {
     root.appendChild(importDxfInput);
 
     const importDxfBtn = document.createElement('button');
-    importDxfBtn.textContent = 'Importar DXF (2D)...';
+    importDxfBtn.textContent = 'Importar DXF/DWG (2D)...';
+    importDxfBtn.title = 'DWG via LibreDWG (WASM) — experimental, veja o README para limitações';
     importDxfBtn.addEventListener('click', () => importDxfInput.click());
     root.appendChild(importDxfBtn);
 

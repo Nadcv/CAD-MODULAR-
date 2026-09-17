@@ -57,13 +57,20 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
 - **Biblioteca de módulos pré-definidos**: painel à esquerda com presets comuns de marcenaria
   (armário base 40/60/80, gaveteiro, armário aéreo, torre, bancada, porta, janela) — clique para
   inserir; inserções repetidas do mesmo preset reaproveitam o mesmo módulo mestre.
+- **Importar DXF/DWG (2D)**: `.dxf` via `dxf-parser`; `.dwg` via [LibreDWG](https://www.gnu.org/software/libredwg/)
+  compilada para WebAssembly pelo pacote [@mlightcad/libredwg-web](https://github.com/mlightcad/libredwg-web)
+  (GPL-3.0, ~10MB, carregada sob demanda). Testado de ponta a ponta com arquivos `.dwg` reais
+  (AutoCAD 2018) do próprio conjunto de testes da biblioteca — linhas, círculos, arcos e
+  polilinhas leem corretamente. Suporte a `.dwg` continua **experimental**: cobertura de
+  entidades/versões do formato varia (ver limitações abaixo).
 
 ## O que NÃO dá para fazer (e por quê)
 
-- **`.dwg` nativo não é suportado.** É um formato binário fechado da Autodesk; não existe biblioteca
-  JS/WASM gratuita e confiável para lê-lo. Ao tentar importar um `.dwg`, a aplicação explica as
-  alternativas: exportar como DXF a partir do AutoCAD/BricsCAD/LibreCAD, usar o conversor gratuito
-  ODA File Converter, ou licenciar a SDK da Open Design Alliance para suporte nativo num backend.
+- **`.dwg` é melhor esforço, não perfeito.** A LibreDWG é a única implementação livre e mantida
+  do formato, mas seu suporte de leitura varia por versão do AutoCAD e tipo de entidade — um
+  arquivo pode ler parcialmente (algumas entidades ainda não mapeadas, como TEXT/INSERT/blocos)
+  ou falhar. A alternativa "oficial" (SDK da Open Design Alliance) é paga e fechada; não é algo
+  que dá para embutir de graça num site público.
 - **STEP/IGES são "melhor esforço"**: a API do opencascade.js não tem tipos TypeScript publicados
   e cobre ~72% das classes do OpenCascade — geometrias avançadas (superfícies NURBS muito
   complexas, montagens grandes) podem não tesselar corretamente.
@@ -81,6 +88,8 @@ src/
               componentes carregados/clonados da biblioteca)
   io/         dxf.ts, mesh.ts, step.ts, dwg.ts, component.ts — import/export por formato;
               component.ts unifica STL/OBJ/glTF/STEP/IGES em "salvar na biblioteca + colocar instância"
+  vendor/     libredwg-web.js — cópia do módulo WASM bruto da LibreDWG (o pacote não expõe esse
+              subcaminho no `exports` do package.json, então é copiado em vez de importado)
   ui/         Toolbar.ts, ModuleList.ts, PropertiesPanel.ts, PresetLibrary.ts, ComponentLibraryPanel.ts
 ```
 
