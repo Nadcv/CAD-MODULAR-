@@ -51,12 +51,17 @@ app.appendChild(footer);
 
 const doc = new CadDocument();
 
+function setStatus(msg: string, isError = false): void {
+  footer.textContent = msg;
+  footer.classList.toggle('error', isError);
+}
+
 const canvas2d = new Canvas2D(pane2d, doc);
 const scene3D = new Scene3D(pane3d, doc);
 new PresetLibrary(leftPanelHost, doc);
 new ModuleList(leftPanelHost, doc);
 const componentLibrary = new ComponentLibraryPanel(leftPanelHost, doc);
-new PropertiesPanel(rightPanelHost, doc);
+new PropertiesPanel(rightPanelHost, doc, setStatus, () => componentLibrary.refresh());
 new Toolbar(toolbarHost, doc, scene3D, canvas2d, componentLibrary, footer);
 
 function seedExample(): void {

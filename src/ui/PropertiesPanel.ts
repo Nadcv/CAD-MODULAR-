@@ -1,13 +1,23 @@
 import type { CadDocument } from '../core/Document';
 import type { ModuleDef, PlacedComponentDef } from '../core/types';
+import { explodeComponent } from '../io/component';
 
 /** Right-hand panel: shows and edits the numeric fields of the currently selected module(s). */
 export class PropertiesPanel {
   private root: HTMLElement;
   private doc: CadDocument;
+  private setStatus: (msg: string, isError?: boolean) => void;
+  private onLibraryChanged: () => void;
 
-  constructor(container: HTMLElement, doc: CadDocument) {
+  constructor(
+    container: HTMLElement,
+    doc: CadDocument,
+    setStatus: (msg: string, isError?: boolean) => void = () => {},
+    onLibraryChanged: () => void = () => {},
+  ) {
     this.doc = doc;
+    this.setStatus = setStatus;
+    this.onLibraryChanged = onLibraryChanged;
     this.root = document.createElement('div');
     this.root.className = 'panel properties-panel';
     container.appendChild(this.root);
@@ -105,6 +115,19 @@ export class PropertiesPanel {
       this.doc.setSelection([copy.id]);
     });
 
+    const explodeBtn = document.createElement('button');
+    explodeBtn.textContent = 'Explodir';
+    explodeBtn.title = 'Separa as sub-partes deste componente em peças independentes, mantendo a posição visual de cada uma';
+    explodeBtn.addEventListener('click', async () => {
+      try {
+        const parts = await explodeComponent(this.doc, inst);
+        this.onLibraryChanged();
+        this.setStatus(`Explodido em ${parts.length} partes.`);
+      } catch (err) {
+        this.setStatus((err as Error).message, true);
+      }
+    });
+
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Remover';
     delBtn.className = 'danger';
@@ -113,7 +136,7 @@ export class PropertiesPanel {
       this.doc.removePlacedComponent(inst.id);
     });
 
-    actions.append(dupBtn, delBtn);
+    actions.append(dupBtn, explodeBtn, delBtn);
     this.root.appendChild(actions);
   }
 

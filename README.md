@@ -32,6 +32,10 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
   sem reimportar/reprocessar o arquivo original. Cada instância colocada é movível/girável/escalável
   tanto em 2D (arraste; a pegada é o bounding box do componente) quanto em 3D (gizmo), e entra no
   desfazer/refazer normalmente — só a geometria em si fica fora do histórico (vive na biblioteca).
+  **Explodir**: selecione um componente com várias sub-peças e clique "Explodir" (no painel de
+  propriedades) para separá-las em componentes independentes, cada uma exatamente na posição/rotação
+  visual em que estava — igual ao comando EXPLODE do AutoCAD, um nível por vez (explodir de novo
+  numa das partes resultantes desce mais um nível, se houver). Entra no desfazer/refazer.
   STEP/IGES via [opencascade.js](https://github.com/donalffons/opencascade.js) (WASM, ~65MB, carregado
   sob demanda) é **experimental**: funciona para sólidos simples, geometria muito complexa pode
   falhar (erro aparece na barra de status, não trava a aplicação).

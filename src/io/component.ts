@@ -4,7 +4,7 @@ import type { CadDocument } from '../core/Document';
 import { nextId } from '../core/Document';
 import type { LibraryComponentMeta, PlacedComponentDef } from '../core/types';
 import { saveComponent } from '../core/componentLibrary';
-import { loadMeshGroup, formatFromFilename } from './mesh';
+import { loadMeshGroup, loadLibraryComponentGroup, formatFromFilename } from './mesh';
 import { loadStepOrIgesGeometry } from './step';
 import { isDwgFile } from './dwg';
 
@@ -24,6 +24,30 @@ function exportGroupToGlb(group: THREE.Object3D): Promise<ArrayBuffer> {
       { binary: true },
     );
   });
+}
+
+/**
+ * Re-anchors `group` so its bounding box starts at its own local origin (matches how modules are
+ * authored: position is the bottom-front-left corner, not an arbitrary offset), exports it to
+ * binary glTF, and saves it as a new persistent library component.
+ */
+async function saveGroupAsLibraryComponent(
+  name: string,
+  sourceFormat: string,
+  group: THREE.Object3D,
+): Promise<{ meta: LibraryComponentMeta; worldAnchor: THREE.Vector3 }> {
+  const box = new THREE.Box3().setFromObject(group);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const worldAnchor = box.min.clone();
+  group.position.sub(worldAnchor);
+
+  const glb = await exportGroupToGlb(group);
+  const meta = await saveComponent(
+    { id: nextId('lib'), name, sourceFormat, width: size.x || 0.01, depth: size.z || 0.01, height: size.y || 0.01 },
+    glb,
+  );
+  return { meta, worldAnchor };
 }
 
 /**
@@ -55,19 +79,7 @@ export async function importFileAsComponent(
     sourceFormat = format;
   }
 
-  const box = new THREE.Box3().setFromObject(group);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  // Re-anchor so the component's footprint starts at its own local origin (matches how modules
-  // are authored: position is the bottom-front-left corner, not an arbitrary import-time offset).
-  group.position.sub(box.min);
-
-  const glb = await exportGroupToGlb(group);
-
-  const meta = await saveComponent(
-    { id: nextId('lib'), name: file.name, sourceFormat, width: size.x || 0.01, depth: size.z || 0.01, height: size.y || 0.01 },
-    glb,
-  );
+  const { meta } = await saveGroupAsLibraryComponent(file.name, sourceFormat, group);
 
   doc.checkpoint();
   const inst = doc.addPlacedComponent({
@@ -83,4 +95,74 @@ export async function importFileAsComponent(
   doc.setSelection([inst.id]);
 
   return { meta, instance: inst };
+}
+
+/**
+ * Round-tripping through GLTFExporter/GLTFLoader (as every saved library component has) wraps
+ * whatever object was originally exported in its own synthetic node — so if the original file had
+ * two top-level parts ("Corpo", "Tampa"), the loaded result isn't a group with those two as direct
+ * children; it's a group with ONE child (the wrapper), which in turn has the two real parts. Drill
+ * through those single-child pass-through nodes to find the level that actually branches.
+ */
+function findExplodableParts(root: THREE.Object3D): THREE.Object3D[] {
+  let node = root;
+  while (node.children.length === 1) node = node.children[0];
+  return node.children;
+}
+
+/**
+ * "Explode" a placed component one level deep: each of its top-level sub-parts (e.g. a multi-body
+ * assembly's individual bodies) becomes its own independent library component + placed instance,
+ * positioned/rotated exactly where it visually sat inside the original — and the combined instance
+ * is removed. Mirrors AutoCAD's EXPLODE: one level per call: run it again on a result to go deeper.
+ * Throws if the component has no more than one top-level part (nothing to explode).
+ */
+export async function explodeComponent(doc: CadDocument, inst: PlacedComponentDef): Promise<PlacedComponentDef[]> {
+  const template = await loadLibraryComponentGroup(inst.libraryId);
+
+  // Reproduce exactly the placement Scene3D uses, so each child's matrixWorld reflects where it
+  // is actually seen in the current document (accounts for any move/rotate/scale already applied
+  // to this instance).
+  template.position.set(inst.position.x, inst.position.z, inst.position.y);
+  template.rotation.set(0, -inst.rotationZ, 0);
+  template.scale.setScalar(inst.scale);
+  template.updateMatrixWorld(true);
+
+  const parts = findExplodableParts(template);
+  if (parts.length <= 1) {
+    throw new Error('Este componente é uma peça única — não há sub-partes para explodir.');
+  }
+
+  doc.checkpoint();
+  const newInstances: PlacedComponentDef[] = [];
+  let idx = 0;
+  for (const child of parts) {
+    idx += 1;
+    // Detach the child into its own standalone, un-parented object that carries its full world
+    // transform baked into its own position/quaternion/scale (it has no parent any more, so its
+    // "local" transform IS the world transform from here on).
+    const worldMatrix = child.matrixWorld.clone();
+    const standalone = child.clone(true);
+    worldMatrix.decompose(standalone.position, standalone.quaternion, standalone.scale);
+    standalone.updateMatrixWorld(true);
+
+    const partName = child.name ? `${inst.name} – ${child.name}` : `${inst.name} – parte ${idx}`;
+    const { meta, worldAnchor } = await saveGroupAsLibraryComponent(partName, 'exploded', standalone);
+
+    const newInst = doc.addPlacedComponent({
+      libraryId: meta.id,
+      name: meta.name,
+      position: { x: worldAnchor.x, y: worldAnchor.z, z: worldAnchor.y },
+      rotationZ: 0,
+      scale: 1,
+      width: meta.width,
+      depth: meta.depth,
+      height: meta.height,
+    });
+    newInstances.push(newInst);
+  }
+
+  doc.removePlacedComponent(inst.id);
+  doc.setSelection(newInstances.map((i) => i.id));
+  return newInstances;
 }
