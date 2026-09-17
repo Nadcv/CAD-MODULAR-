@@ -88,7 +88,16 @@ export async function loadStepOrIgesGroup(file: File): Promise<THREE.Object3D> {
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const readFile = isIges(file.name) ? occt.ReadIgesFile : occt.ReadStepFile;
-  const result = readFile(bytes, { linearUnit: 'meter' });
+  // occt-import-js's default angularDeflection (0.5 rad ≈ 29°) tessellates curved surfaces into
+  // very few facets — a cylindrical rod or filleted edge comes out visibly faceted/blocky instead
+  // of looking like the real part. Tightening it (and linearDeflection a bit) trades some mesh
+  // size for a result that actually resembles the source geometry.
+  const result = readFile(bytes, {
+    linearUnit: 'meter',
+    linearDeflectionType: 'bounding_box_ratio',
+    linearDeflection: 0.0005,
+    angularDeflection: 0.15,
+  });
 
   if (!result.success) {
     throw new Error('Leitura do ficheiro falhou — pode estar corrompido ou usar um recurso não suportado.');
