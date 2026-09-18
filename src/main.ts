@@ -61,7 +61,7 @@ const scene3D = new Scene3D(pane3d, doc);
 new PresetLibrary(leftPanelHost, doc);
 new ModuleList(leftPanelHost, doc);
 const componentLibrary = new ComponentLibraryPanel(leftPanelHost, doc);
-new PropertiesPanel(rightPanelHost, doc, setStatus, () => componentLibrary.refresh());
+new PropertiesPanel(rightPanelHost, doc, setStatus, () => componentLibrary.refresh(), scene3D);
 new Toolbar(toolbarHost, doc, scene3D, canvas2d, componentLibrary, footer);
 
 function seedExample(): void {

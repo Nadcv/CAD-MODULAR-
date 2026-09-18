@@ -6,14 +6,18 @@ import { importDxfIntoDocument, exportDocumentToDxf } from '../io/dxf';
 import { exportToStl, exportToObj, exportToGltf } from '../io/mesh';
 import { importFileAsComponent } from '../io/component';
 import { isDwgFile, parseDwgToEntities } from '../io/dwg';
+import { generateBom, bomToCsv } from '../io/bom';
+import { exportProjectToPdf } from '../io/pdf';
 
-function download(filename: string, content: string | ArrayBuffer | object): void {
+function download(filename: string, content: string | ArrayBuffer | Blob | object): void {
   const blob =
-    content instanceof ArrayBuffer
-      ? new Blob([content], { type: 'application/octet-stream' })
-      : typeof content === 'string'
-        ? new Blob([content], { type: 'text/plain' })
-        : new Blob([JSON.stringify(content)], { type: 'application/json' });
+    content instanceof Blob
+      ? content
+      : content instanceof ArrayBuffer
+        ? new Blob([content], { type: 'application/octet-stream' })
+        : typeof content === 'string'
+          ? new Blob([content], { type: 'text/plain' })
+          : new Blob([JSON.stringify(content)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -209,6 +213,8 @@ export class Toolbar {
       <option value="stl">Exportar → STL (3D)</option>
       <option value="obj">Exportar → OBJ (3D)</option>
       <option value="gltf">Exportar → glTF (3D)</option>
+      <option value="bom">Exportar → Lista de materiais (CSV)</option>
+      <option value="pdf">Exportar → PDF (planta + vista 3D + lista)</option>
       <option value="json">Exportar → JSON (projeto)</option>
     `;
     root.appendChild(exportSelect);
@@ -222,6 +228,8 @@ export class Toolbar {
         else if (format === 'stl') download('modelo.stl', await exportToStl(doc));
         else if (format === 'obj') download('modelo.obj', await exportToObj(doc));
         else if (format === 'gltf') download('modelo.gltf', await exportToGltf(doc));
+        else if (format === 'bom') download('lista-de-materiais.csv', bomToCsv(generateBom(doc)));
+        else if (format === 'pdf') download('projeto.pdf', await exportProjectToPdf(doc, canvas2d, scene3D));
         else download('projeto.json', doc.toJSON());
         setStatus(`Exportado como ${format.toUpperCase()}`);
       } catch (err) {

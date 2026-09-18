@@ -4,6 +4,10 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type { CadDocument } from '../core/Document';
 import type { ModuleDef } from '../core/types';
 import { loadLibraryComponentGroup } from '../io/mesh';
+import { findExplodableParts } from '../io/component';
+import { buildModuleMaterial } from './materials';
+
+const SUB_PART_HIGHLIGHT = 0xff33cc;
 
 type SelectableKind = 'module' | 'component';
 
@@ -29,12 +33,15 @@ export class Scene3D {
   private container: HTMLElement;
   private resizeObserver: ResizeObserver;
   private frameHandle = 0;
+  private highlightedSubPart: { instanceId: string; index: number } | undefined;
 
   constructor(container: HTMLElement, doc: CadDocument) {
     this.container = container;
     this.doc = doc;
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // preserveDrawingBuffer: toDataURL() (used for PDF export snapshots) would otherwise often
+    // read back a blank/cleared buffer, since WebGL may clear it right after presenting a frame.
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(this.renderer.domElement);
 
@@ -82,6 +89,26 @@ export class Scene3D {
 
   setMode(mode: 'translate' | 'rotate' | 'scale'): void {
     this.transform.setMode(mode);
+  }
+
+  /** PNG snapshot of the current 3D view, for PDF export (io/pdf.ts). */
+  getSnapshotDataUrl(): string {
+    this.renderer.render(this.scene, this.camera);
+    return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  /** Non-destructively highlights one of a placed component's top-level sub-parts (see
+   * io/component.ts's findExplodableParts — the same split "Explodir" would produce), so a parts
+   * tree UI can preview structure without actually separating anything. Persists across normal
+   * edits and clears itself automatically if the instance is deselected. */
+  highlightSubPart(instanceId: string, index: number): void {
+    this.highlightedSubPart = { instanceId, index };
+    this.applySelection();
+  }
+
+  clearSubPartHighlight(): void {
+    this.highlightedSubPart = undefined;
+    this.applySelection();
   }
 
   setSnap(enabled: boolean, translationStep = 0.05): void {
@@ -161,13 +188,15 @@ export class Scene3D {
     const seen = new Set<string>();
     for (const mod of this.doc.modules.values()) {
       seen.add(mod.id);
+      const materialKey = `${mod.material ?? 'solid'}:${mod.color}:${mod.width.toFixed(3)}:${mod.height.toFixed(3)}`;
       let mesh = this.meshes.get(mod.id);
       if (!mesh) {
         const geometry = new THREE.BoxGeometry(mod.width, mod.height, mod.depth);
         geometry.translate(mod.width / 2, mod.height / 2, mod.depth / 2);
-        const material = new THREE.MeshStandardMaterial({ color: mod.color, metalness: 0.1, roughness: 0.7 });
+        const material = buildModuleMaterial(mod.material, mod.color, mod.width, mod.height);
         mesh = new THREE.Mesh(geometry, material);
         mesh.userData.moduleId = mod.id;
+        mesh.userData.materialKey = materialKey;
         this.scene.add(mesh);
         this.meshes.set(mod.id, mesh);
       } else {
@@ -176,7 +205,17 @@ export class Scene3D {
         if (params.width !== mod.width || params.height !== mod.height || params.depth !== mod.depth) {
           this.rebuildGeometry(mod, mesh);
         }
-        (mesh.material as THREE.MeshStandardMaterial).color.set(mod.color);
+        // Only rebuild the material when its inputs actually changed — it carries the current
+        // selection highlight (emissive), which would otherwise flash off on every unrelated edit.
+        if (mesh.userData.materialKey !== materialKey) {
+          const oldMaterial = mesh.material as THREE.MeshStandardMaterial;
+          const material = buildModuleMaterial(mod.material, mod.color, mod.width, mod.height);
+          material.emissive.copy(oldMaterial.emissive);
+          mesh.material = material;
+          mesh.userData.materialKey = materialKey;
+          oldMaterial.map?.dispose();
+          oldMaterial.dispose();
+        }
       }
       mesh.position.set(mod.position.x, mod.position.z, mod.position.y);
       mesh.rotation.set(0, -mod.rotationZ, 0);
@@ -190,6 +229,7 @@ export class Scene3D {
         if (this.transform.object === mesh) this.transform.detach();
         this.scene.remove(mesh);
         mesh.geometry.dispose();
+        (mesh.material as THREE.MeshStandardMaterial).map?.dispose();
         (mesh.material as THREE.Material).dispose();
         this.meshes.delete(id);
       }
@@ -310,6 +350,16 @@ export class Scene3D {
     for (const [cid, group] of this.componentGroups) {
       setEmissiveRecursive(group, cid === id ? 0x554400 : 0x000000);
     }
+
+    if (this.highlightedSubPart && this.highlightedSubPart.instanceId !== id) {
+      this.highlightedSubPart = undefined;
+    }
+    if (this.highlightedSubPart) {
+      const group = this.componentGroups.get(this.highlightedSubPart.instanceId);
+      const target = group && findExplodableParts(group)[this.highlightedSubPart.index];
+      if (target) setEmissiveRecursive(target, SUB_PART_HIGHLIGHT);
+    }
+
     const target = (id && this.meshes.get(id)) || (id && this.componentGroups.get(id));
     if (target) this.transform.attach(target);
     else this.transform.detach();

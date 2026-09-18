@@ -43,6 +43,19 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
   fatiadas em múltiplos arquivos que se referenciam entre si (comum em exports "por peça" de alguns
   CADs) não resolvem essas referências externas — o erro aparece na barra de status, não trava a
   aplicação.
+  **Sub-partes**: quando o componente selecionado tem várias sub-peças, o painel de propriedades
+  mostra uma "árvore" com o nome de cada uma (igual à árvore de modelo do FreeCAD) — clique numa
+  parte para destacá-la na vista 3D sem separá-la do componente; só depois, se quiser, use
+  "Explodir" para de fato tornar aquela parte independente.
+- **Materiais/texturas**: cada módulo pode usar uma textura de madeira procedural (carvalho,
+  carvalho branco, nogueira, wengué) em vez de cor sólida — gerada por canvas, sem depender de
+  arquivo de imagem externo. Escolha em "Material" no painel de propriedades.
+- **Lista de materiais (BOM)**: `Exportar → Lista de materiais (CSV)` agrupa módulos, componentes
+  3D e paredes por nome+dimensões, com quantidade — pronto pra abrir em planilha e usar num
+  orçamento ou pedido de material.
+- **Exportar PDF**: `Exportar → PDF` gera um PDF com a planta 2D e a vista 3D atuais lado a lado
+  (exatamente o que está na tela: ângulo de câmera, zoom, pan) mais uma página com a lista de
+  materiais — pra imprimir ou enviar a um cliente/marceneiro.
 - **Exportar**: `.dxf` (módulos + paredes + cotas + pegadas dos componentes + referências),
   `.stl`/`.obj`/`.gltf` (módulos + paredes + componentes colocados), ou `.json` (projeto completo,
   para reabrir depois — os componentes exportam só a referência à biblioteca, não a geometria).
@@ -96,9 +109,11 @@ src/
   view2d/     Canvas2D.ts — planta baixa (canvas 2D: pan/zoom/seleção/arraste/redimensionar,
               ferramentas de parede/cota, snap à grade, pegada dos componentes 3D)
   view3d/     Scene3D.ts — cena three.js (OrbitControls + TransformControls, snap, paredes extrudadas,
-              componentes carregados/clonados da biblioteca)
+              componentes carregados/clonados da biblioteca) + materials.ts (texturas de madeira
+              proceduais via canvas, cacheadas por acabamento)
   io/         dxf.ts, mesh.ts, step.ts, dwg.ts, component.ts — import/export por formato;
-              component.ts unifica STL/OBJ/glTF/STEP/IGES em "salvar na biblioteca + colocar instância"
+              component.ts unifica STL/OBJ/glTF/STEP/IGES em "salvar na biblioteca + colocar instância";
+              bom.ts (lista de materiais) e pdf.ts (planta+vista+lista em PDF, via jsPDF sob demanda)
   vendor/     libredwg-web.js — cópia do módulo WASM bruto da LibreDWG (o pacote não expõe esse
               subcaminho no `exports` do package.json, então é copiado em vez de importado)
   ui/         Toolbar.ts, ModuleList.ts, PropertiesPanel.ts, PresetLibrary.ts, ComponentLibraryPanel.ts

@@ -19,6 +19,8 @@ export interface ModuleDef {
   depth: number;
   height: number;
   color: string;
+  /** Finish id from view3d/materials.ts (e.g. 'oak', 'walnut'). Undefined/'solid' = plain `color`. */
+  material?: string;
   /** Id of the MasterModule this instance was placed from, if any. Enables "edit once, update all". */
   masterId?: string;
   locked?: boolean;
@@ -32,6 +34,7 @@ export interface MasterModuleDef {
   depth: number;
   height: number;
   color: string;
+  material?: string;
 }
 
 /** A straight wall segment, drawn in 2D as a thick line and extruded as a box in 3D. */

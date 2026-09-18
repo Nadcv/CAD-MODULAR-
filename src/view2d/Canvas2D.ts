@@ -83,6 +83,11 @@ export class Canvas2D {
     window.removeEventListener('keydown', this.onKeyDown);
   }
 
+  /** PNG snapshot of the current plan view, for PDF export (io/pdf.ts). */
+  getSnapshotDataUrl(): string {
+    return this.canvas.toDataURL('image/png');
+  }
+
   setTool(tool: ToolMode): void {
     this.tool = tool;
     this.pendingPoint = null;

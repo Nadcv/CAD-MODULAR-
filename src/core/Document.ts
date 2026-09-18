@@ -122,19 +122,24 @@ export class CadDocument {
 
     // If this instance is linked to a master, keep sibling instances of the same master
     // in sync for dimension/color changes — "edit once, update everywhere".
-    if (mod.masterId && (patch.width !== undefined || patch.depth !== undefined || patch.height !== undefined || patch.color !== undefined)) {
+    if (
+      mod.masterId &&
+      (patch.width !== undefined || patch.depth !== undefined || patch.height !== undefined || patch.color !== undefined || patch.material !== undefined)
+    ) {
       const master = this.masters.get(mod.masterId);
       if (master) {
         if (patch.width !== undefined) master.width = patch.width;
         if (patch.depth !== undefined) master.depth = patch.depth;
         if (patch.height !== undefined) master.height = patch.height;
         if (patch.color !== undefined) master.color = patch.color;
+        if (patch.material !== undefined) master.material = patch.material;
         for (const sibling of this.modules.values()) {
           if (sibling.masterId === mod.masterId && sibling.id !== id) {
             if (patch.width !== undefined) sibling.width = patch.width;
             if (patch.depth !== undefined) sibling.depth = patch.depth;
             if (patch.height !== undefined) sibling.height = patch.height;
             if (patch.color !== undefined) sibling.color = patch.color;
+            if (patch.material !== undefined) sibling.material = patch.material;
           }
         }
       }
@@ -180,6 +185,7 @@ export class CadDocument {
       depth: master.depth,
       height: master.height,
       color: master.color,
+      material: master.material,
       masterId: master.id,
     });
   }

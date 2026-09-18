@@ -1,6 +1,8 @@
 import type { CadDocument } from '../core/Document';
 import type { ModuleDef, PlacedComponentDef } from '../core/types';
-import { explodeComponent } from '../io/component';
+import { explodeComponent, listSubParts } from '../io/component';
+import { MATERIAL_FINISHES } from '../view3d/materials';
+import type { Scene3D } from '../view3d/Scene3D';
 
 /** Right-hand panel: shows and edits the numeric fields of the currently selected module(s). */
 export class PropertiesPanel {
@@ -8,16 +10,21 @@ export class PropertiesPanel {
   private doc: CadDocument;
   private setStatus: (msg: string, isError?: boolean) => void;
   private onLibraryChanged: () => void;
+  private scene3D: Scene3D | undefined;
+  private subPartsCache = new Map<string, string[]>();
+  private activeSubPart: { instanceId: string; index: number } | undefined;
 
   constructor(
     container: HTMLElement,
     doc: CadDocument,
     setStatus: (msg: string, isError?: boolean) => void = () => {},
     onLibraryChanged: () => void = () => {},
+    scene3D?: Scene3D,
   ) {
     this.doc = doc;
     this.setStatus = setStatus;
     this.onLibraryChanged = onLibraryChanged;
+    this.scene3D = scene3D;
     this.root = document.createElement('div');
     this.root.className = 'panel properties-panel';
     container.appendChild(this.root);
@@ -51,6 +58,9 @@ export class PropertiesPanel {
     this.root.appendChild(title);
 
     const ids = [...this.doc.selectedIds];
+    if (this.activeSubPart && !ids.includes(this.activeSubPart.instanceId)) {
+      this.activeSubPart = undefined;
+    }
     if (ids.length !== 1) {
       const hint = document.createElement('p');
       hint.className = 'hint';
@@ -142,6 +152,53 @@ export class PropertiesPanel {
 
     actions.append(dupBtn, explodeBtn, delBtn);
     this.root.appendChild(actions);
+
+    this.renderSubParts(inst);
+  }
+
+  /** Preview of a multi-part component's structure (same split "Explodir" would produce), without
+   * committing to actually separating anything — click a part to highlight just that sub-shape in
+   * the 3D view. Mirrors how FreeCAD shows an assembly's tree immediately on import. */
+  private renderSubParts(inst: PlacedComponentDef): void {
+    const cached = this.subPartsCache.get(inst.libraryId);
+    if (cached === undefined) {
+      listSubParts(inst.libraryId)
+        .then((names) => {
+          this.subPartsCache.set(inst.libraryId, names);
+          if ([...this.doc.selectedIds][0] === inst.id) this.render();
+        })
+        .catch(() => this.subPartsCache.set(inst.libraryId, []));
+      return;
+    }
+    if (cached.length === 0) return;
+
+    const title = document.createElement('h3');
+    title.textContent = `Sub-partes (${cached.length})`;
+    this.root.appendChild(title);
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'Clique para destacar uma parte na vista 3D, sem separá-la do componente.';
+    this.root.appendChild(hint);
+
+    cached.forEach((name, index) => {
+      const active = this.activeSubPart?.instanceId === inst.id && this.activeSubPart.index === index;
+      const row = document.createElement('div');
+      row.className = 'list-row' + (active ? ' selected' : '');
+      const label = document.createElement('span');
+      label.textContent = name;
+      row.appendChild(label);
+      row.addEventListener('click', () => {
+        if (active) {
+          this.activeSubPart = undefined;
+          this.scene3D?.clearSubPartHighlight();
+        } else {
+          this.activeSubPart = { instanceId: inst.id, index };
+          this.scene3D?.highlightSubPart(inst.id, index);
+        }
+        this.render();
+      });
+      this.root.appendChild(row);
+    });
   }
 
   private renderModule(mod: ModuleDef): void {
@@ -189,6 +246,25 @@ export class PropertiesPanel {
     });
     colorRow.append(colorSpan, colorInput);
     this.root.appendChild(colorRow);
+
+    const materialRow = document.createElement('label');
+    materialRow.className = 'field-row';
+    const materialSpan = document.createElement('span');
+    materialSpan.textContent = 'Material';
+    const materialSelect = document.createElement('select');
+    for (const finish of MATERIAL_FINISHES) {
+      const option = document.createElement('option');
+      option.value = finish.id;
+      option.textContent = finish.label;
+      materialSelect.appendChild(option);
+    }
+    materialSelect.value = mod.material ?? 'solid';
+    materialSelect.addEventListener('change', () => {
+      this.doc.checkpoint();
+      this.doc.updateModule(mod.id, { material: materialSelect.value });
+    });
+    materialRow.append(materialSpan, materialSelect);
+    this.root.appendChild(materialRow);
 
     if (mod.masterId) {
       const masterHint = document.createElement('p');

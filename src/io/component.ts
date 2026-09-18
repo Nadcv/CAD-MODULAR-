@@ -117,10 +117,23 @@ export async function importFileAsComponent(
  * children; it's a group with ONE child (the wrapper), which in turn has the two real parts. Drill
  * through those single-child pass-through nodes to find the level that actually branches.
  */
-function findExplodableParts(root: THREE.Object3D): THREE.Object3D[] {
+export function findExplodableParts(root: THREE.Object3D): THREE.Object3D[] {
   let node = root;
   while (node.children.length === 1) node = node.children[0];
   return node.children;
+}
+
+/**
+ * Names for a library component's top-level sub-parts (the same split "Explodir" would produce),
+ * without loading geometry into the document — lets a UI preview a multi-part component's
+ * structure (e.g. a parts tree, mirroring how FreeCAD shows an assembly's tree immediately on
+ * import) before the user commits to actually separating anything.
+ */
+export async function listSubParts(libraryId: string): Promise<string[]> {
+  const template = await loadLibraryComponentGroup(libraryId);
+  const parts = findExplodableParts(template);
+  if (parts.length <= 1) return [];
+  return parts.map((child, i) => child.name || `Parte ${i + 1}`);
 }
 
 /**
