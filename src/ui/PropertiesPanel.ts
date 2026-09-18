@@ -1,6 +1,8 @@
 import type { CadDocument } from '../core/Document';
 import type { ModuleDef, PlacedComponentDef } from '../core/types';
 import { explodeComponent, listSubParts } from '../io/component';
+import { applyBoolean, type BooleanOp } from '../io/boolean';
+import { arrayLinear, arrayCircular, mirror } from '../io/arrange';
 import { MATERIAL_FINISHES } from '../view3d/materials';
 import type { Scene3D } from '../view3d/Scene3D';
 
@@ -51,6 +53,100 @@ export class PropertiesPanel {
     return row;
   }
 
+  /** Like `field()`, but for local, ephemeral form state (array count/spacing) — no checkpoint,
+   * no doc write, just calls back with the parsed number. */
+  private numberField(label: string, value: number, step: number, onChange: (v: number) => void): HTMLElement {
+    const row = document.createElement('label');
+    row.className = 'field-row';
+    const span = document.createElement('span');
+    span.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = String(step);
+    input.value = String(value);
+    input.addEventListener('change', () => onChange(parseFloat(input.value) || 0));
+    row.append(span, input);
+    return row;
+  }
+
+  private renderBooleanActions(idA: string, idB: string): void {
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent =
+      '2 selecionados — combine com uma operação booleana. O resultado vira um novo componente (geometria calculada), substituindo os dois originais.';
+    this.root.appendChild(hint);
+
+    const actions = document.createElement('div');
+    actions.className = 'panel-actions';
+    const ops: { op: BooleanOp; label: string }[] = [
+      { op: 'union', label: 'União' },
+      { op: 'subtract', label: 'Subtrair (A − B)' },
+      { op: 'intersect', label: 'Interseção' },
+    ];
+    for (const { op, label } of ops) {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      if (op === 'subtract') btn.title = 'A = primeiro selecionado, B = segundo selecionado';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        this.setStatus(`Calculando ${label.toLowerCase()}...`);
+        try {
+          await applyBoolean(this.doc, idA, idB, op);
+          this.onLibraryChanged();
+          this.setStatus(`${label} aplicada.`);
+        } catch (err) {
+          this.setStatus((err as Error).message, true);
+          btn.disabled = false;
+        }
+      });
+      actions.appendChild(btn);
+    }
+    this.root.appendChild(actions);
+  }
+
+  /** Array (linear/circular) + mirror actions, shared by modules and placed components. */
+  private renderArrangeActions(id: string, defaultSpacingX: number): void {
+    const title = document.createElement('h3');
+    title.textContent = 'Array / Espelhar';
+    this.root.appendChild(title);
+
+    let linCount = 3;
+    let linDx = defaultSpacingX;
+    let linDy = 0;
+    this.root.appendChild(this.numberField('Cópias (linear)', linCount, 1, (v) => (linCount = Math.max(2, Math.round(v)))));
+    this.root.appendChild(this.numberField('Espaçamento X (m)', linDx, 0.01, (v) => (linDx = v)));
+    this.root.appendChild(this.numberField('Espaçamento Y (m)', linDy, 0.01, (v) => (linDy = v)));
+    const linBtn = document.createElement('button');
+    linBtn.textContent = 'Aplicar array linear';
+    linBtn.addEventListener('click', () => arrayLinear(this.doc, id, linCount, linDx, linDy));
+    this.root.appendChild(linBtn);
+
+    let circCount = 6;
+    let circRadius = 1;
+    let circAngle = 360;
+    this.root.appendChild(this.numberField('Cópias (circular)', circCount, 1, (v) => (circCount = Math.max(2, Math.round(v)))));
+    this.root.appendChild(this.numberField('Raio (m)', circRadius, 0.05, (v) => (circRadius = v)));
+    this.root.appendChild(this.numberField('Ângulo total (graus)', circAngle, 1, (v) => (circAngle = v)));
+    const circBtn = document.createElement('button');
+    circBtn.textContent = 'Aplicar array circular';
+    circBtn.title = 'As cópias orbitam ao redor da peça original, que não se move';
+    circBtn.addEventListener('click', () => arrayCircular(this.doc, id, circCount, circRadius, circAngle));
+    this.root.appendChild(circBtn);
+
+    const mirrorRow = document.createElement('div');
+    mirrorRow.className = 'panel-actions';
+    const mirrorXBtn = document.createElement('button');
+    mirrorXBtn.textContent = 'Espelhar em X';
+    mirrorXBtn.title = 'Cria uma cópia refletida através do plano X=0 do projeto';
+    mirrorXBtn.addEventListener('click', () => mirror(this.doc, id, 'x'));
+    const mirrorYBtn = document.createElement('button');
+    mirrorYBtn.textContent = 'Espelhar em Y';
+    mirrorYBtn.title = 'Cria uma cópia refletida através do plano Y=0 do projeto';
+    mirrorYBtn.addEventListener('click', () => mirror(this.doc, id, 'y'));
+    mirrorRow.append(mirrorXBtn, mirrorYBtn);
+    this.root.appendChild(mirrorRow);
+  }
+
   private render(): void {
     this.root.innerHTML = '';
     const title = document.createElement('h3');
@@ -60,6 +156,10 @@ export class PropertiesPanel {
     const ids = [...this.doc.selectedIds];
     if (this.activeSubPart && !ids.includes(this.activeSubPart.instanceId)) {
       this.activeSubPart = undefined;
+    }
+    if (ids.length === 2 && (this.doc.modules.has(ids[0]) || this.doc.placedComponents.has(ids[0])) && (this.doc.modules.has(ids[1]) || this.doc.placedComponents.has(ids[1]))) {
+      this.renderBooleanActions(ids[0], ids[1]);
+      return;
     }
     if (ids.length !== 1) {
       const hint = document.createElement('p');
@@ -154,6 +254,7 @@ export class PropertiesPanel {
     this.root.appendChild(actions);
 
     this.renderSubParts(inst);
+    this.renderArrangeActions(inst.id, inst.width * inst.scale);
   }
 
   /** Preview of a multi-part component's structure (same split "Explodir" would produce), without
@@ -266,6 +367,10 @@ export class PropertiesPanel {
     materialRow.append(materialSpan, materialSelect);
     this.root.appendChild(materialRow);
 
+    this.root.appendChild(
+      this.field('Raio do canto (m)', mod.cornerRadius ?? 0, 0.005, (v) => this.doc.updateModule(mod.id, { cornerRadius: Math.max(0, v) })),
+    );
+
     if (mod.masterId) {
       const masterHint = document.createElement('p');
       masterHint.className = 'hint';
@@ -303,5 +408,7 @@ export class PropertiesPanel {
 
     actions.append(dupBtn, makeMasterBtn, delBtn);
     this.root.appendChild(actions);
+
+    this.renderArrangeActions(mod.id, mod.width);
   }
 }

@@ -56,6 +56,21 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
 - **Exportar PDF**: `Exportar → PDF` gera um PDF com a planta 2D e a vista 3D atuais lado a lado
   (exatamente o que está na tela: ângulo de câmera, zoom, pan) mais uma página com a lista de
   materiais — pra imprimir ou enviar a um cliente/marceneiro.
+- **Operações estilo FreeCAD** (painel de propriedades, com um módulo ou componente selecionado):
+  - **Array linear**: N cópias em linha, com espaçamento X/Y configurável.
+  - **Array circular**: N cópias orbitando a peça original a um raio e ângulo total dados.
+  - **Espelhar**: cria uma cópia refletida através do plano X=0 ou Y=0 do projeto — exato para
+    módulos (uma caixa não tem "lado certo"); para um componente 3D importado, só a posição é
+    espelhada de verdade, a malha em si não é invertida (o app não representa uma instância com
+    escala negativa/refletida).
+  - **Raio do canto** (só módulos): arredonda as arestas verticais e horizontais da caixa via
+    [`RoundedBoxGeometry`](https://threejs.org/docs/#examples/en/geometries/RoundedBoxGeometry) —
+    um fillet aproximado, não uma operação B-rep real.
+  - **Booleanas** (União / Subtrair / Interseção): selecione exatamente 2 módulos/componentes
+    (clique + Ctrl-clique) para combiná-los via CSG ([three-bvh-csg](https://github.com/gkjohnson/three-bvh-csg),
+    WASM-free, carregado sob demanda). O resultado deixa de ser uma caixa/instância parametrizável
+    — vira um componente novo (geometria calculada, salva na biblioteca) e os dois originais são
+    removidos; "Subtrair" é A − B, na ordem em que você selecionou.
 - **Exportar**: `.dxf` (módulos + paredes + cotas + pegadas dos componentes + referências),
   `.stl`/`.obj`/`.gltf` (módulos + paredes + componentes colocados), ou `.json` (projeto completo,
   para reabrir depois — os componentes exportam só a referência à biblioteca, não a geometria).
@@ -98,6 +113,12 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
   referências externas não são resolvidas — só o arquivo raiz é interpretado. Um STEP/IGES
   autocontido num único arquivo (o caso comum de peças de catálogo de fabricante) importa
   normalmente.
+- **Não é o FreeCAD.** Esse app tem um subconjunto pequeno e deliberado do que o FreeCAD faz —
+  booleanas, array, espelhar e fillet aproximado em caixas (ver acima), pensado especificamente
+  pra módulos de marcenaria. Não há sketch paramétrico com restrições geométricas, modelagem por
+  superfícies NURBS, FEM/simulação, CAM/toolpath, nem desenho técnico normatizado (TechDraw) — o
+  FreeCAD é construído sobre um kernel B-rep completo (OpenCascade) com mais de uma dezena de
+  workbenches; replicar tudo isso está fora do escopo de um editor de módulos de marcenaria.
 
 ## Arquitetura
 
@@ -113,7 +134,9 @@ src/
               proceduais via canvas, cacheadas por acabamento)
   io/         dxf.ts, mesh.ts, step.ts, dwg.ts, component.ts — import/export por formato;
               component.ts unifica STL/OBJ/glTF/STEP/IGES em "salvar na biblioteca + colocar instância";
-              bom.ts (lista de materiais) e pdf.ts (planta+vista+lista em PDF, via jsPDF sob demanda)
+              bom.ts (lista de materiais) e pdf.ts (planta+vista+lista em PDF, via jsPDF sob demanda);
+              arrange.ts (array linear/circular, espelhar) e boolean.ts (União/Subtrair/Interseção
+              via three-bvh-csg sob demanda — ambos operam em módulos e componentes 3D igualmente)
   vendor/     libredwg-web.js — cópia do módulo WASM bruto da LibreDWG (o pacote não expõe esse
               subcaminho no `exports` do package.json, então é copiado em vez de importado)
   ui/         Toolbar.ts, ModuleList.ts, PropertiesPanel.ts, PresetLibrary.ts, ComponentLibraryPanel.ts

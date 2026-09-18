@@ -45,7 +45,7 @@ function hasGeometry(object: THREE.Object3D): boolean {
  * authored: position is the bottom-front-left corner, not an arbitrary offset), exports it to
  * binary glTF, and saves it as a new persistent library component.
  */
-async function saveGroupAsLibraryComponent(
+export async function saveGroupAsLibraryComponent(
   name: string,
   sourceFormat: string,
   group: THREE.Object3D,

@@ -1,11 +1,22 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { CadDocument } from '../core/Document';
 import type { ModuleDef } from '../core/types';
 import { loadLibraryComponentGroup } from '../io/mesh';
 import { findExplodableParts } from '../io/component';
 import { buildModuleMaterial } from './materials';
+
+/** Sharp box, or (cornerRadius > 0) a rounded one — RoundedBoxGeometry clamps the radius to at
+ * most half the shortest side on its own, so no extra clamping is needed here. */
+function buildModuleGeometry(mod: ModuleDef): THREE.BufferGeometry {
+  const radius = mod.cornerRadius ?? 0;
+  const geometry =
+    radius > 0 ? new RoundedBoxGeometry(mod.width, mod.height, mod.depth, 3, radius) : new THREE.BoxGeometry(mod.width, mod.height, mod.depth);
+  geometry.translate(mod.width / 2, mod.height / 2, mod.depth / 2);
+  return geometry;
+}
 
 const SUB_PART_HIGHLIGHT = 0xff33cc;
 
@@ -166,6 +177,7 @@ export class Scene3D {
       mod.height = Math.max(0.05, obj.scale.y * mod.height);
       obj.scale.set(1, 1, 1);
       this.rebuildGeometry(mod, obj as THREE.Mesh);
+      obj.userData.geometryKey = `${mod.width.toFixed(3)}:${mod.height.toFixed(3)}:${mod.depth.toFixed(3)}:${(mod.cornerRadius ?? 0).toFixed(3)}`;
       this.doc.events.emit('change', { reason: 'transform3d' });
     } else if (obj.userData.componentInstanceId) {
       const inst = this.doc.placedComponents.get(obj.userData.componentInstanceId as string);
@@ -179,8 +191,7 @@ export class Scene3D {
 
   private rebuildGeometry(mod: ModuleDef, mesh: THREE.Mesh): void {
     mesh.geometry.dispose();
-    mesh.geometry = new THREE.BoxGeometry(mod.width, mod.height, mod.depth);
-    mesh.geometry.translate(mod.width / 2, mod.height / 2, mod.depth / 2);
+    mesh.geometry = buildModuleGeometry(mod);
   }
 
   /** Rebuild/refresh module meshes to match the document (cheap: small scene sizes expected). */
@@ -189,21 +200,21 @@ export class Scene3D {
     for (const mod of this.doc.modules.values()) {
       seen.add(mod.id);
       const materialKey = `${mod.material ?? 'solid'}:${mod.color}:${mod.width.toFixed(3)}:${mod.height.toFixed(3)}`;
+      const geometryKey = `${mod.width.toFixed(3)}:${mod.height.toFixed(3)}:${mod.depth.toFixed(3)}:${(mod.cornerRadius ?? 0).toFixed(3)}`;
       let mesh = this.meshes.get(mod.id);
       if (!mesh) {
-        const geometry = new THREE.BoxGeometry(mod.width, mod.height, mod.depth);
-        geometry.translate(mod.width / 2, mod.height / 2, mod.depth / 2);
+        const geometry = buildModuleGeometry(mod);
         const material = buildModuleMaterial(mod.material, mod.color, mod.width, mod.height);
         mesh = new THREE.Mesh(geometry, material);
         mesh.userData.moduleId = mod.id;
         mesh.userData.materialKey = materialKey;
+        mesh.userData.geometryKey = geometryKey;
         this.scene.add(mesh);
         this.meshes.set(mod.id, mesh);
       } else {
-        const g = mesh.geometry as THREE.BoxGeometry;
-        const params = g.parameters;
-        if (params.width !== mod.width || params.height !== mod.height || params.depth !== mod.depth) {
+        if (mesh.userData.geometryKey !== geometryKey) {
           this.rebuildGeometry(mod, mesh);
+          mesh.userData.geometryKey = geometryKey;
         }
         // Only rebuild the material when its inputs actually changed — it carries the current
         // selection highlight (emissive), which would otherwise flash off on every unrelated edit.

@@ -21,6 +21,8 @@ export interface ModuleDef {
   color: string;
   /** Finish id from view3d/materials.ts (e.g. 'oak', 'walnut'). Undefined/'solid' = plain `color`. */
   material?: string;
+  /** Corner rounding radius (meters). 0/undefined = sharp box corners (plain BoxGeometry). */
+  cornerRadius?: number;
   /** Id of the MasterModule this instance was placed from, if any. Enables "edit once, update all". */
   masterId?: string;
   locked?: boolean;

@@ -109,7 +109,11 @@ export class CadDocument {
   // --- Modules -------------------------------------------------------
 
   addModule(partial: Omit<ModuleDef, 'id'> & { id?: string }): ModuleDef {
-    const mod: ModuleDef = { id: partial.id ?? nextId('mod'), ...partial };
+    // `id` must come last in the spread: a caller like duplicateModule() passes `id: undefined`
+    // explicitly (not omitted), and object spread with `id` first would let that `undefined`
+    // silently overwrite the freshly generated one, storing every such call under the same
+    // `undefined` Map key (later calls would each clobber the previous one).
+    const mod: ModuleDef = { ...partial, id: partial.id ?? nextId('mod') };
     this.modules.set(mod.id, mod);
     this.notify('addModule');
     return mod;
@@ -168,7 +172,7 @@ export class CadDocument {
   // --- Master modules (reusable blocks) -------------------------------
 
   defineMaster(partial: Omit<MasterModuleDef, 'id'> & { id?: string }): MasterModuleDef {
-    const master: MasterModuleDef = { id: partial.id ?? nextId('master'), ...partial };
+    const master: MasterModuleDef = { ...partial, id: partial.id ?? nextId('master') };
     this.masters.set(master.id, master);
     this.notify('defineMaster');
     return master;
@@ -193,7 +197,7 @@ export class CadDocument {
   // --- Walls -------------------------------------------------------------
 
   addWall(partial: Omit<WallDef, 'id'> & { id?: string }): WallDef {
-    const wall: WallDef = { id: partial.id ?? nextId('wall'), ...partial };
+    const wall: WallDef = { ...partial, id: partial.id ?? nextId('wall') };
     this.walls.set(wall.id, wall);
     this.notify('addWall');
     return wall;
@@ -215,7 +219,7 @@ export class CadDocument {
   // --- Dimensions (2D annotations) ----------------------------------------
 
   addDimension(partial: Omit<DimensionDef, 'id'> & { id?: string }): DimensionDef {
-    const dim: DimensionDef = { id: partial.id ?? nextId('dim'), ...partial };
+    const dim: DimensionDef = { ...partial, id: partial.id ?? nextId('dim') };
     this.dimensions.set(dim.id, dim);
     this.notify('addDimension');
     return dim;
@@ -229,7 +233,7 @@ export class CadDocument {
   // --- Placed components (instances of the persistent 3D component library) ---------
 
   addPlacedComponent(partial: Omit<PlacedComponentDef, 'id'> & { id?: string }): PlacedComponentDef {
-    const inst: PlacedComponentDef = { id: partial.id ?? nextId('comp'), ...partial };
+    const inst: PlacedComponentDef = { ...partial, id: partial.id ?? nextId('comp') };
     this.placedComponents.set(inst.id, inst);
     this.notify('addPlacedComponent');
     return inst;
