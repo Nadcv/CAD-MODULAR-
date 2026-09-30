@@ -1,12 +1,13 @@
 import type { CadDocument } from '../core/Document';
 import type { Scene3D } from '../view3d/Scene3D';
-import type { Canvas2D, ToolMode } from '../view2d/Canvas2D';
+import type { Canvas2D, ToolMode, Layer } from '../view2d/Canvas2D';
 import type { ComponentLibraryPanel } from './ComponentLibraryPanel';
 import { importDxfIntoDocument, exportDocumentToDxf } from '../io/dxf';
 import { exportToStl, exportToObj, exportToGltf } from '../io/mesh';
 import { importFileAsComponent } from '../io/component';
 import { isDwgFile, parseDwgToEntities } from '../io/dwg';
 import { generateBom, bomToCsv } from '../io/bom';
+import { getPrices } from '../core/pricing';
 import { exportProjectToPdf } from '../io/pdf';
 
 function download(filename: string, content: string | ArrayBuffer | Blob | object): void {
@@ -114,6 +115,29 @@ export class Toolbar {
     applySnap();
     snapLabel.append(snapCheckbox, document.createTextNode(' Ajustar à grade (5cm / 15°)'));
     root.appendChild(snapLabel);
+
+    // --- Layer visibility toggles ---
+    const layerGroup = document.createElement('div');
+    layerGroup.className = 'button-group';
+    const layers: { layer: Layer; label: string; affects3D: boolean }[] = [
+      { layer: 'walls', label: 'Paredes', affects3D: true },
+      { layer: 'dimensions', label: 'Cotas', affects3D: false },
+      { layer: 'reference', label: 'Ref. DXF', affects3D: false },
+    ];
+    for (const { layer, label, affects3D } of layers) {
+      const layerLabel = document.createElement('label');
+      layerLabel.className = 'snap-toggle';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+      checkbox.addEventListener('change', () => {
+        canvas2d.setLayerVisible(layer, checkbox.checked);
+        if (affects3D) scene3D.setShowWalls(checkbox.checked);
+      });
+      layerLabel.append(checkbox, document.createTextNode(` ${label}`));
+      layerGroup.appendChild(layerLabel);
+    }
+    root.appendChild(layerGroup);
 
     // --- Import DXF/DWG (2D reference geometry) ---
     const importDxfInput = document.createElement('input');
@@ -228,7 +252,7 @@ export class Toolbar {
         else if (format === 'stl') download('modelo.stl', await exportToStl(doc));
         else if (format === 'obj') download('modelo.obj', await exportToObj(doc));
         else if (format === 'gltf') download('modelo.gltf', await exportToGltf(doc));
-        else if (format === 'bom') download('lista-de-materiais.csv', bomToCsv(generateBom(doc)));
+        else if (format === 'bom') download('lista-de-materiais.csv', bomToCsv(generateBom(doc), getPrices()));
         else if (format === 'pdf') download('projeto.pdf', await exportProjectToPdf(doc, canvas2d, scene3D));
         else download('projeto.json', doc.toJSON());
         setStatus(`Exportado como ${format.toUpperCase()}`);

@@ -117,6 +117,11 @@ main.layout {
   overflow-y: auto;
 }
 
+.side-column .panel.pricing-panel {
+  flex: 0 0 auto;
+  max-height: 260px;
+}
+
 .component-row {
   flex-wrap: wrap;
   gap: 4px 8px;

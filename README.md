@@ -71,6 +71,22 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
     WASM-free, carregado sob demanda). O resultado deixa de ser uma caixa/instância parametrizável
     — vira um componente novo (geometria calculada, salva na biblioteca) e os dois originais são
     removidos; "Subtrair" é A − B, na ordem em que você selecionou.
+- **Agrupar**: selecione 2+ módulos/componentes e clique "Agrupar" — a partir daí, clicar em
+  qualquer um deles (no 2D ou no 3D) seleciona o grupo inteiro, e arrastá-lo move todos juntos
+  (em 3D, girar/escalar pelo gizmo ainda afeta só a peça realmente agarrada — mover o grupo
+  inteiro por rotação/escala exigiria um pivô compartilhado que o modelo de dados não tem). O
+  painel de "Módulos no desenho" à esquerda ainda seleciona um item isolado diretamente — é o
+  jeito de editar as propriedades de só uma peça do grupo, ou de "Desagrupar".
+- **Ajustar a objetos vizinhos**: além do snap à grade, arrastar um módulo/componente (sozinho,
+  não em grupo) na planta 2D encaixa automaticamente sua borda na borda de um vizinho quando fica
+  perto o suficiente — só funciona entre objetos sem rotação (não alinhados a 0/90/180/270° não
+  têm uma única aresta reta pra alinhar).
+- **Camadas**: checkboxes na toolbar pra esconder Paredes (2D e 3D), Cotas e a referência DXF/DWG
+  importada (ambas só em 2D) — útil pra limpar a tela sem apagar nada.
+- **Estimativa de custo**: painel "Preços (R$/m²)" à esquerda, com um valor por acabamento de
+  material (salvo neste navegador, não faz parte do projeto/histórico de desfazer). A lista de
+  materiais (CSV) e o PDF somam `largura × altura × preço/m²` por item — uma estimativa grosseira
+  (não considera corte, ferragem nem mão de obra), não um orçamento fechado.
 - **Exportar**: `.dxf` (módulos + paredes + cotas + pegadas dos componentes + referências),
   `.stl`/`.obj`/`.gltf` (módulos + paredes + componentes colocados), ou `.json` (projeto completo,
   para reabrir depois — os componentes exportam só a referência à biblioteca, não a geometria).
@@ -126,20 +142,24 @@ GitHub Actions builda e publica automaticamente em GitHub Pages (veja
 src/
   core/       Document.ts (fonte única de verdade: módulos, mestres, paredes, cotas, componentes
               colocados, seleção, histórico de desfazer/refazer) + tipos + emissor de eventos +
-              componentLibrary.ts (biblioteca persistente de geometria 3D via IndexedDB)
+              componentLibrary.ts (biblioteca persistente de geometria 3D via IndexedDB) +
+              pricing.ts (preços por m² pra estimativa de custo, salvos em localStorage)
   view2d/     Canvas2D.ts — planta baixa (canvas 2D: pan/zoom/seleção/arraste/redimensionar,
-              ferramentas de parede/cota, snap à grade, pegada dos componentes 3D)
-  view3d/     Scene3D.ts — cena three.js (OrbitControls + TransformControls, snap, paredes extrudadas,
-              componentes carregados/clonados da biblioteca) + materials.ts (texturas de madeira
-              proceduais via canvas, cacheadas por acabamento)
+              ferramentas de parede/cota, snap à grade e a bordas de vizinhos, camadas, pegada
+              dos componentes 3D)
+  view3d/     Scene3D.ts — cena three.js (OrbitControls + TransformControls, snap, grupos, paredes
+              extrudadas, componentes carregados/clonados da biblioteca) + materials.ts (texturas
+              de madeira proceduais via canvas, cacheadas por acabamento)
   io/         dxf.ts, mesh.ts, step.ts, dwg.ts, component.ts — import/export por formato;
               component.ts unifica STL/OBJ/glTF/STEP/IGES em "salvar na biblioteca + colocar instância";
-              bom.ts (lista de materiais) e pdf.ts (planta+vista+lista em PDF, via jsPDF sob demanda);
-              arrange.ts (array linear/circular, espelhar) e boolean.ts (União/Subtrair/Interseção
-              via three-bvh-csg sob demanda — ambos operam em módulos e componentes 3D igualmente)
+              bom.ts (lista de materiais + estimativa de custo) e pdf.ts (planta+vista+lista em PDF,
+              via jsPDF sob demanda); arrange.ts (array linear/circular, espelhar), group.ts
+              (agrupar/desagrupar) e boolean.ts (União/Subtrair/Interseção via three-bvh-csg sob
+              demanda) — todos operam em módulos e componentes 3D igualmente
   vendor/     libredwg-web.js — cópia do módulo WASM bruto da LibreDWG (o pacote não expõe esse
               subcaminho no `exports` do package.json, então é copiado em vez de importado)
-  ui/         Toolbar.ts, ModuleList.ts, PropertiesPanel.ts, PresetLibrary.ts, ComponentLibraryPanel.ts
+  ui/         Toolbar.ts, ModuleList.ts, PropertiesPanel.ts, PresetLibrary.ts, ComponentLibraryPanel.ts,
+              PricingPanel.ts
 ```
 
 ### Biblioteca de componentes 3D (ex: peças da Danfoss)

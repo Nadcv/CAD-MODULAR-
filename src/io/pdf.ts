@@ -1,7 +1,8 @@
 import type { CadDocument } from '../core/Document';
 import type { Canvas2D } from '../view2d/Canvas2D';
 import type { Scene3D } from '../view3d/Scene3D';
-import { generateBom } from './bom';
+import { generateBom, estimateRowCost } from './bom';
+import { getPrices } from '../core/pricing';
 
 function imageSize(dataUrl: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -66,7 +67,8 @@ export async function exportProjectToPdf(doc: CadDocument, canvas2d: Canvas2D, s
   pdf.setFont('helvetica', 'normal');
 
   const rows = generateBom(doc);
-  const colX = { category: margin, name: margin + 32, qty: margin + 130, w: margin + 150, d: margin + 178, h: margin + 206 };
+  const prices = getPrices();
+  const colX = { category: margin, name: margin + 32, qty: margin + 122, w: margin + 140, d: margin + 164, h: margin + 188, price: margin + 214 };
   let y = 26;
 
   const drawHeader = (): void => {
@@ -78,6 +80,7 @@ export async function exportProjectToPdf(doc: CadDocument, canvas2d: Canvas2D, s
     pdf.text('Larg (m)', colX.w, y);
     pdf.text('Prof (m)', colX.d, y);
     pdf.text('Alt (m)', colX.h, y);
+    pdf.text('Preço est. (R$)', colX.price, y);
     pdf.setFont('helvetica', 'normal');
     y += 4;
     pdf.setDrawColor(180);
@@ -86,25 +89,43 @@ export async function exportProjectToPdf(doc: CadDocument, canvas2d: Canvas2D, s
   };
   drawHeader();
 
+  let total = 0;
   for (const row of rows) {
     if (y > pageH - margin) {
       pdf.addPage();
       y = 16;
       drawHeader();
     }
-    const name = row.name.length > 45 ? `${row.name.slice(0, 42)}…` : row.name;
+    const cost = estimateRowCost(row, prices);
+    total += cost;
+    const name = row.name.length > 35 ? `${row.name.slice(0, 32)}…` : row.name;
     pdf.text(row.category, colX.category, y);
     pdf.text(name, colX.name, y);
     pdf.text(String(row.quantity), colX.qty, y);
     pdf.text(row.width.toFixed(2), colX.w, y);
     pdf.text(row.depth.toFixed(2), colX.d, y);
     pdf.text(row.height.toFixed(2), colX.h, y);
+    pdf.text(cost.toFixed(2), colX.price, y);
     y += 6;
   }
 
   if (rows.length === 0) {
     pdf.setTextColor(140);
     pdf.text('Projeto vazio.', margin, y);
+    pdf.setTextColor(0);
+  } else {
+    y += 2;
+    pdf.setDrawColor(180);
+    pdf.line(margin, y, pageW - margin, y);
+    y += 6;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Total estimado (R$)', colX.h, y);
+    pdf.text(total.toFixed(2), colX.price, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.setTextColor(140);
+    y += 6;
+    pdf.text('Estimativa aproximada (área × preço/m² configurado) — não inclui corte, ferragens ou mão de obra.', margin, y);
     pdf.setTextColor(0);
   }
 

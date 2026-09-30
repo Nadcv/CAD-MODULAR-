@@ -6,6 +6,7 @@ import type { CadDocument } from '../core/Document';
 import type { ModuleDef } from '../core/types';
 import { loadLibraryComponentGroup } from '../io/mesh';
 import { findExplodableParts } from '../io/component';
+import { getGroupMembers, groupIdOf } from '../io/group';
 import { buildModuleMaterial } from './materials';
 
 /** Sharp box, or (cornerRadius > 0) a rounded one — RoundedBoxGeometry clamps the radius to at
@@ -45,6 +46,8 @@ export class Scene3D {
   private resizeObserver: ResizeObserver;
   private frameHandle = 0;
   private highlightedSubPart: { instanceId: string; index: number } | undefined;
+  private groupDragAnchor: THREE.Vector3 | undefined;
+  private showWalls = true;
 
   constructor(container: HTMLElement, doc: CadDocument) {
     this.container = container;
@@ -75,7 +78,12 @@ export class Scene3D {
     this.transform.addEventListener('dragging-changed', (ev) => {
       const dragging = (ev as unknown as { value: boolean }).value;
       this.orbit.enabled = !dragging;
-      if (dragging) this.doc.checkpoint();
+      if (dragging) {
+        this.doc.checkpoint();
+        this.groupDragAnchor = this.transform.object?.position.clone();
+      } else {
+        this.groupDragAnchor = undefined;
+      }
     });
     this.transform.addEventListener('objectChange', () => this.writeBackTransform());
     this.scene.add(this.transform.getHelper());
@@ -122,6 +130,11 @@ export class Scene3D {
     this.applySelection();
   }
 
+  setShowWalls(visible: boolean): void {
+    this.showWalls = visible;
+    for (const mesh of this.wallMeshes.values()) mesh.visible = visible;
+  }
+
   setSnap(enabled: boolean, translationStep = 0.05): void {
     this.transform.setTranslationSnap(enabled ? translationStep : null);
     this.transform.setRotationSnap(enabled ? THREE.MathUtils.degToRad(15) : null);
@@ -158,15 +171,43 @@ export class Scene3D {
     const hits = this.raycaster.intersectObjects(targets, true);
     if (hits.length > 0) {
       const found = this.findSelectable(hits[0].object);
-      if (found) this.doc.setSelection([found.id]);
+      if (found) {
+        const groupId = groupIdOf(this.doc, found.id);
+        this.doc.setSelection(groupId ? getGroupMembers(this.doc, groupId) : [found.id]);
+      }
     } else if (!this.transform.dragging) {
       this.doc.setSelection([]);
     }
   };
 
+  /** Applies a world-space translation delta to every other member of `groupId` — used so
+   * dragging one grouped module/component in 3D (via TransformControls) moves the rest with it.
+   * Only translation propagates this way; rotating or scaling the gizmo only ever affects the one
+   * part actually grabbed (a rigid group rotation/scale would need a shared pivot, which the data
+   * model doesn't have). */
+  private applyGroupDelta(groupId: string, exceptId: string, worldDelta: THREE.Vector3): void {
+    for (const id of getGroupMembers(this.doc, groupId)) {
+      if (id === exceptId) continue;
+      const mod = this.doc.modules.get(id);
+      if (mod) {
+        mod.position = { x: mod.position.x + worldDelta.x, y: mod.position.y + worldDelta.z, z: mod.position.z + worldDelta.y };
+        continue;
+      }
+      const inst = this.doc.placedComponents.get(id);
+      if (inst) inst.position = { x: inst.position.x + worldDelta.x, y: inst.position.y + worldDelta.z, z: inst.position.z + worldDelta.y };
+    }
+  }
+
   private writeBackTransform(): void {
     const obj = this.transform.object;
     if (!obj) return;
+
+    let worldDelta: THREE.Vector3 | undefined;
+    if (this.groupDragAnchor) {
+      worldDelta = obj.position.clone().sub(this.groupDragAnchor);
+      this.groupDragAnchor = obj.position.clone();
+    }
+
     if (obj.userData.moduleId) {
       const mod = this.doc.modules.get(obj.userData.moduleId as string);
       if (!mod) return;
@@ -178,6 +219,7 @@ export class Scene3D {
       obj.scale.set(1, 1, 1);
       this.rebuildGeometry(mod, obj as THREE.Mesh);
       obj.userData.geometryKey = `${mod.width.toFixed(3)}:${mod.height.toFixed(3)}:${mod.depth.toFixed(3)}:${(mod.cornerRadius ?? 0).toFixed(3)}`;
+      if (worldDelta && mod.groupId) this.applyGroupDelta(mod.groupId, mod.id, worldDelta);
       this.doc.events.emit('change', { reason: 'transform3d' });
     } else if (obj.userData.componentInstanceId) {
       const inst = this.doc.placedComponents.get(obj.userData.componentInstanceId as string);
@@ -185,6 +227,7 @@ export class Scene3D {
       inst.position = { x: obj.position.x, y: obj.position.z, z: obj.position.y };
       inst.rotationZ = -obj.rotation.y;
       inst.scale = (obj.scale.x + obj.scale.y + obj.scale.z) / 3;
+      if (worldDelta && inst.groupId) this.applyGroupDelta(inst.groupId, inst.id, worldDelta);
       this.doc.events.emit('change', { reason: 'transform3d' });
     }
   }
@@ -278,6 +321,7 @@ export class Scene3D {
       }
       mesh.position.set(midX, wall.height / 2, midY);
       mesh.rotation.set(0, -angle, 0);
+      mesh.visible = this.showWalls;
     }
     for (const [id, mesh] of this.wallMeshes) {
       if (!seen.has(id)) {
@@ -354,12 +398,16 @@ export class Scene3D {
   }
 
   private applySelection(): void {
+    // Highlight every selected object (not just one) — matters now that clicking a grouped
+    // module/component expands the selection to its whole group. The transform gizmo still only
+    // ever attaches to a single object (TransformControls' own limitation), so `id` below picks
+    // one (arbitrary but deterministic) member to drive it.
     const [id] = [...this.doc.selectedIds];
     for (const [mid, m] of this.meshes) {
-      (m.material as THREE.MeshStandardMaterial).emissive.set(mid === id ? 0x554400 : 0x000000);
+      (m.material as THREE.MeshStandardMaterial).emissive.set(this.doc.selectedIds.has(mid) ? 0x554400 : 0x000000);
     }
     for (const [cid, group] of this.componentGroups) {
-      setEmissiveRecursive(group, cid === id ? 0x554400 : 0x000000);
+      setEmissiveRecursive(group, this.doc.selectedIds.has(cid) ? 0x554400 : 0x000000);
     }
 
     if (this.highlightedSubPart && this.highlightedSubPart.instanceId !== id) {

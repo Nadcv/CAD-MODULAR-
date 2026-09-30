@@ -1,5 +1,6 @@
 import type { CadDocument } from '../core/Document';
 import type { DimensionDef, ModuleDef, PlacedComponentDef, WallDef } from '../core/types';
+import { getGroupMembers, groupIdOf } from '../io/group';
 
 /** Minimal shape shared by anything drawn as a rotated footprint rectangle (modules, components). */
 interface Footprint {
@@ -13,8 +14,9 @@ const HANDLE_SIZE = 8;
 const WALL_HIT_TOLERANCE = 6; // px
 
 export type ToolMode = 'select' | 'wall' | 'dimension';
+export type Layer = 'walls' | 'dimensions' | 'reference';
 
-type DragMode = { kind: 'move'; startX: number; startY: number; origins: Map<string, { x: number; y: number }> }
+type DragMode = { kind: 'move'; startX: number; startY: number; leadId: string; origins: Map<string, { x: number; y: number }> }
   | { kind: 'resize'; id: string; startX: number; startY: number; origin: { width: number; depth: number } }
   | { kind: 'pan'; startX: number; startY: number; originOffset: { x: number; y: number } }
   | null;
@@ -48,6 +50,7 @@ export class Canvas2D {
   private pendingPoint: [number, number] | null = null;
   private previewPoint: [number, number] | null = null;
   private selectedWallId: string | null = null;
+  private layers = { walls: true, dimensions: true, reference: true };
 
   constructor(container: HTMLElement, doc: CadDocument) {
     this.doc = doc;
@@ -92,6 +95,11 @@ export class Canvas2D {
     this.tool = tool;
     this.pendingPoint = null;
     this.previewPoint = null;
+    this.render();
+  }
+
+  setLayerVisible(layer: Layer, visible: boolean): void {
+    this.layers[layer] = visible;
     this.render();
   }
 
@@ -193,6 +201,7 @@ export class Canvas2D {
   }
 
   private wallAtScreen(sx: number, sy: number): WallDef | undefined {
+    if (!this.layers.walls) return undefined;
     for (const wall of this.doc.walls.values()) {
       const p1 = this.worldToScreen(...wall.start);
       const p2 = this.worldToScreen(...wall.end);
@@ -216,6 +225,58 @@ export class Canvas2D {
     const wx = f.position.x + f.width * cos - f.depth * sin;
     const wy = f.position.y + f.width * sin + f.depth * cos;
     return this.worldToScreen(wx, wy);
+  }
+
+  private isAxisAligned(rotationZ: number): boolean {
+    const quarterTurns = rotationZ / (Math.PI / 2);
+    return Math.abs(quarterTurns - Math.round(quarterTurns)) < 1e-6;
+  }
+
+  /**
+   * Pulls (x, y) — the candidate top-left corner of an axis-aligned object being dragged — onto
+   * a nearby neighbor's edge when close enough (screen-pixel tolerance, so it stays a fixed
+   * "feel" regardless of zoom), independently on each axis: left-to-left, left-to-right,
+   * right-to-left and right-to-right (same idea for Y). Lets two cabinets butt up flush against
+   * each other without needing the grid step to happen to land exactly on the seam. Rotated
+   * objects (and snapping against a rotated neighbor) are skipped — edge alignment isn't a
+   * well-defined single point once boxes aren't axis-aligned.
+   */
+  private snapToNeighbors(leadId: string, x: number, y: number, width: number, depth: number, rotationZ: number): { x: number; y: number } {
+    if (!this.isAxisAligned(rotationZ)) return { x, y };
+    const tolerance = 8 / this.scale; // ~8 screen px, in world units
+    let bestDx = 0;
+    let bestDxDist = tolerance;
+    let bestDy = 0;
+    let bestDyDist = tolerance;
+
+    const others: Footprint[] = [
+      ...[...this.doc.modules.values()].filter((m) => m.id !== leadId),
+      ...[...this.doc.placedComponents.values()].filter((c) => c.id !== leadId).map((c) => this.componentFootprint(c)),
+    ];
+    const candidatesX = [x, x + width];
+    const candidatesY = [y, y + depth];
+    for (const other of others) {
+      if (!this.isAxisAligned(other.rotationZ)) continue;
+      for (const cx of candidatesX) {
+        for (const ex of [other.position.x, other.position.x + other.width]) {
+          const d = Math.abs(cx - ex);
+          if (d < bestDxDist) {
+            bestDxDist = d;
+            bestDx = ex - cx;
+          }
+        }
+      }
+      for (const cy of candidatesY) {
+        for (const ey of [other.position.y, other.position.y + other.depth]) {
+          const d = Math.abs(cy - ey);
+          if (d < bestDyDist) {
+            bestDyDist = d;
+            bestDy = ey - cy;
+          }
+        }
+      }
+    }
+    return { x: x + bestDx, y: y + bestDy };
   }
 
   private onMouseDown = (ev: MouseEvent): void => {
@@ -268,7 +329,13 @@ export class Canvas2D {
     if (hit) {
       this.selectedWallId = null;
       if (!this.doc.selectedIds.has(hit.id)) {
-        this.doc.setSelection(ev.ctrlKey || ev.metaKey ? [...this.doc.selectedIds, hit.id] : [hit.id]);
+        // Clicking any member of a group selects (and, below, drags) the whole group — it's
+        // meant to behave like one rigid unit from the 2D/3D canvas. The side module list still
+        // selects a single item directly (see ModuleList.ts), as an escape hatch for editing or
+        // ungrouping just one member.
+        const groupId = groupIdOf(this.doc, hit.id);
+        const hitIds = groupId ? getGroupMembers(this.doc, groupId) : [hit.id];
+        this.doc.setSelection(ev.ctrlKey || ev.metaKey ? [...new Set([...this.doc.selectedIds, ...hitIds])] : hitIds);
       }
       this.doc.checkpoint();
       const origins = new Map<string, { x: number; y: number }>();
@@ -276,7 +343,7 @@ export class Canvas2D {
         const mod = this.doc.modules.get(id) ?? this.doc.placedComponents.get(id);
         if (mod) origins.set(id, { x: mod.position.x, y: mod.position.y });
       }
-      this.drag = { kind: 'move', startX: wx, startY: wy, origins };
+      this.drag = { kind: 'move', startX: wx, startY: wy, leadId: hit.id, origins };
       return;
     }
 
@@ -312,11 +379,25 @@ export class Canvas2D {
     const [wx, wy] = this.screenToWorld(sx, sy);
 
     if (this.drag.kind === 'move') {
-      const dx = this.snap(wx - this.drag.startX);
-      const dy = this.snap(wy - this.drag.startY);
+      let dx = this.snap(wx - this.drag.startX);
+      let dy = this.snap(wy - this.drag.startY);
+
+      // Snapping to a neighbor's edge only makes sense for a single, ungrouped object being
+      // placed — for a multi/group drag there's no one footprint to align, so it's skipped.
+      if (this.drag.origins.size === 1) {
+        const leadOrigin = this.drag.origins.get(this.drag.leadId)!;
+        const lead = this.doc.modules.get(this.drag.leadId) ?? this.doc.placedComponents.get(this.drag.leadId);
+        if (lead) {
+          const footprint = this.doc.modules.has(this.drag.leadId) ? (lead as ModuleDef) : this.componentFootprint(lead as PlacedComponentDef);
+          const snapped = this.snapToNeighbors(this.drag.leadId, leadOrigin.x + dx, leadOrigin.y + dy, footprint.width, footprint.depth, footprint.rotationZ);
+          dx = snapped.x - leadOrigin.x;
+          dy = snapped.y - leadOrigin.y;
+        }
+      }
+
       for (const [id, origin] of this.drag.origins) {
         const target = this.doc.modules.get(id) ?? this.doc.placedComponents.get(id);
-        if (target) target.position = { ...target.position, x: this.snap(origin.x + dx), y: this.snap(origin.y + dy) };
+        if (target) target.position = { ...target.position, x: origin.x + dx, y: origin.y + dy };
       }
       this.doc.events.emit('change', { reason: 'drag-move' });
       return;
@@ -358,11 +439,11 @@ export class Canvas2D {
     ctx.fillRect(0, 0, w, h);
 
     this.drawGrid(w, h);
-    this.drawDxfEntities();
-    for (const wall of this.doc.walls.values()) this.drawWall(wall);
+    if (this.layers.reference) this.drawDxfEntities();
+    if (this.layers.walls) for (const wall of this.doc.walls.values()) this.drawWall(wall);
     for (const mod of this.doc.modules.values()) this.drawModule(mod);
     for (const inst of this.doc.placedComponents.values()) this.drawComponent(inst);
-    for (const dim of this.doc.dimensions.values()) this.drawDimension(dim);
+    if (this.layers.dimensions) for (const dim of this.doc.dimensions.values()) this.drawDimension(dim);
     this.drawPendingTool();
   }
 

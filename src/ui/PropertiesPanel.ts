@@ -3,6 +3,7 @@ import type { ModuleDef, PlacedComponentDef } from '../core/types';
 import { explodeComponent, listSubParts } from '../io/component';
 import { applyBoolean, type BooleanOp } from '../io/boolean';
 import { arrayLinear, arrayCircular, mirror } from '../io/arrange';
+import { groupSelection, ungroup, getGroupMembers } from '../io/group';
 import { MATERIAL_FINISHES } from '../view3d/materials';
 import type { Scene3D } from '../view3d/Scene3D';
 
@@ -67,6 +68,24 @@ export class PropertiesPanel {
     input.addEventListener('change', () => onChange(parseFloat(input.value) || 0));
     row.append(span, input);
     return row;
+  }
+
+  private renderMultiSelectActions(ids: string[]): void {
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = `${ids.length} selecionados.`;
+    this.root.appendChild(hint);
+
+    const groupBtn = document.createElement('button');
+    groupBtn.textContent = 'Agrupar';
+    groupBtn.title = 'A partir de agora, selecionar/arrastar qualquer um deles afeta o grupo inteiro';
+    groupBtn.addEventListener('click', () => {
+      groupSelection(this.doc, ids);
+      this.setStatus(`Agrupado (${ids.length} peças).`);
+    });
+    this.root.appendChild(groupBtn);
+
+    if (ids.length === 2) this.renderBooleanActions(ids[0], ids[1]);
   }
 
   private renderBooleanActions(idA: string, idB: string): void {
@@ -157,8 +176,9 @@ export class PropertiesPanel {
     if (this.activeSubPart && !ids.includes(this.activeSubPart.instanceId)) {
       this.activeSubPart = undefined;
     }
-    if (ids.length === 2 && (this.doc.modules.has(ids[0]) || this.doc.placedComponents.has(ids[0])) && (this.doc.modules.has(ids[1]) || this.doc.placedComponents.has(ids[1]))) {
-      this.renderBooleanActions(ids[0], ids[1]);
+    const arrangeableIds = ids.filter((id) => this.doc.modules.has(id) || this.doc.placedComponents.has(id));
+    if (arrangeableIds.length >= 2) {
+      this.renderMultiSelectActions(arrangeableIds);
       return;
     }
     if (ids.length !== 1) {
@@ -253,8 +273,28 @@ export class PropertiesPanel {
     actions.append(dupBtn, explodeBtn, delBtn);
     this.root.appendChild(actions);
 
+    this.renderGroupHint(inst.groupId);
     this.renderSubParts(inst);
     this.renderArrangeActions(inst.id, inst.width * inst.scale);
+  }
+
+  /** If this item belongs to a group, shows a note + "Desagrupar" — reachable here because
+   * ModuleList.ts's rows select a single item directly, bypassing the group-click-expansion that
+   * Canvas2D/Scene3D do (see io/group.ts). */
+  private renderGroupHint(groupId: string | undefined): void {
+    if (!groupId) return;
+    const members = getGroupMembers(this.doc, groupId);
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = `Faz parte de um grupo (${members.length} peças) — clicar em qualquer uma delas seleciona todas.`;
+    this.root.appendChild(hint);
+    const ungroupBtn = document.createElement('button');
+    ungroupBtn.textContent = 'Desagrupar';
+    ungroupBtn.addEventListener('click', () => {
+      ungroup(this.doc, groupId);
+      this.setStatus('Grupo desfeito.');
+    });
+    this.root.appendChild(ungroupBtn);
   }
 
   /** Preview of a multi-part component's structure (same split "Explodir" would produce), without
@@ -409,6 +449,7 @@ export class PropertiesPanel {
     actions.append(dupBtn, makeMasterBtn, delBtn);
     this.root.appendChild(actions);
 
+    this.renderGroupHint(mod.groupId);
     this.renderArrangeActions(mod.id, mod.width);
   }
 }

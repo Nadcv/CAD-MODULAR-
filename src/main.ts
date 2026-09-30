@@ -7,6 +7,7 @@ import { ModuleList } from './ui/ModuleList';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { PresetLibrary } from './ui/PresetLibrary';
 import { ComponentLibraryPanel } from './ui/ComponentLibraryPanel';
+import { PricingPanel } from './ui/PricingPanel';
 
 const STORAGE_KEY = 'cad-modular-project-v1';
 
@@ -61,6 +62,7 @@ const scene3D = new Scene3D(pane3d, doc);
 new PresetLibrary(leftPanelHost, doc);
 new ModuleList(leftPanelHost, doc);
 const componentLibrary = new ComponentLibraryPanel(leftPanelHost, doc);
+new PricingPanel(leftPanelHost);
 new PropertiesPanel(rightPanelHost, doc, setStatus, () => componentLibrary.refresh(), scene3D);
 new Toolbar(toolbarHost, doc, scene3D, canvas2d, componentLibrary, footer);
 

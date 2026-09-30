@@ -26,6 +26,9 @@ export interface ModuleDef {
   /** Id of the MasterModule this instance was placed from, if any. Enables "edit once, update all". */
   masterId?: string;
   locked?: boolean;
+  /** Shared id linking this to other modules/components in the same group (see io/group.ts) —
+   * clicking any one of them in the 2D/3D view selects, and moves in 3D, the whole group. */
+  groupId?: string;
 }
 
 /** A reusable module template (like an AutoCAD block definition). Instances reference it by masterId. */
@@ -92,4 +95,6 @@ export interface PlacedComponentDef {
   width: number;
   depth: number;
   height: number;
+  /** See ModuleDef.groupId. */
+  groupId?: string;
 }
